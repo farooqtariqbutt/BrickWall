@@ -1,0 +1,16 @@
+{
+  "name": "Brick Wall Game",
+  "short_name": "Brick Wall",
+  "description": "A classic brick-breaking arcade game. Control the paddle at the bottom to bounce the ball and destroy all the bricks on the screen. Don't let the ball fall past your paddle!",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0891b2",
+  "icons": [
+    {
+      "src": "vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

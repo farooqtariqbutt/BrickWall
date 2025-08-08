@@ -1,0 +1,6 @@
+{
+  "name": "Brick Wall Game",
+  "description": "A classic brick-breaking arcade game. Control the paddle at the bottom to bounce the ball and destroy all the bricks on the screen. Don't let the ball fall past your paddle!",
+  "requestFramePermissions": [],
+  "prompt": ""
+}
