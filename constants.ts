@@ -43,6 +43,7 @@ export const powerUpColors: Record<PowerUpType, string> = {
   T: 'bg-orange-500 border-orange-300',
   N: 'bg-slate-500 border-slate-300',
   F: 'bg-purple-500 border-purple-300',
+  L: 'bg-yellow-400 border-yellow-200',
 };
 
 export const powerUpDescriptions: Record<PowerUpType, string> = {
@@ -52,4 +53,5 @@ export const powerUpDescriptions: Record<PowerUpType, string> = {
   T: 'Tiny Paddle',
   N: 'Normal',
   F: 'Fire Power',
+  L: 'Laser Ball',
 };

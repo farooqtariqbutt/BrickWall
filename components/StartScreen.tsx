@@ -5,9 +5,11 @@ interface StartScreenProps {
   onStart: () => void;
   onGoToSettings: () => void;
   onGoToHighScores: () => void;
+  onToggleOnScreenControls: () => void;
+  onScreenControlsEnabled: boolean;
 }
 
-const StartScreen: React.FC<StartScreenProps> = ({ onStart, onGoToSettings, onGoToHighScores }) => {
+const StartScreen: React.FC<StartScreenProps> = ({ onStart, onGoToSettings, onGoToHighScores, onToggleOnScreenControls, onScreenControlsEnabled }) => {
   return (
     <div
       className="bg-slate-800/80 backdrop-blur-sm border-2 border-slate-700 rounded-lg flex flex-col items-center justify-center text-center p-10 shadow-2xl"
@@ -16,7 +18,7 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, onGoToSettings, onGo
       <h2 className="text-4xl font-bold mb-4 text-white">Welcome to Brick Wall!</h2>
       <p className="text-slate-300 max-w-md mb-8">
         Your goal is to break all the bricks without letting the ball fall. You have 3 lives.
-        Configure your controls in the Settings menu.
+        Use on-screen controls or a keyboard.
       </p>
       <div className="flex flex-col space-y-4">
         <button
@@ -36,6 +38,12 @@ const StartScreen: React.FC<StartScreenProps> = ({ onStart, onGoToSettings, onGo
           className="px-8 py-3 bg-slate-600 text-white font-bold text-lg rounded-lg hover:bg-slate-500 transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-slate-400 shadow-lg"
         >
           Settings
+        </button>
+        <button
+          onClick={onToggleOnScreenControls}
+          className="px-8 py-3 bg-slate-600 text-white font-bold text-lg rounded-lg hover:bg-slate-500 transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-slate-400 shadow-lg"
+        >
+          On-Screen Controls: <span className={onScreenControlsEnabled ? "text-cyan-400" : "text-red-400"}>{onScreenControlsEnabled ? 'ON' : 'OFF'}</span>
         </button>
       </div>
     </div>

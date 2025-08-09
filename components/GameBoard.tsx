@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback, useReducer } from 'react';
+
+import React, { useState, useEffect, useRef, useCallback, useReducer, useImperativeHandle, forwardRef } from 'react';
 import {
   BOARD_WIDTH,
   BOARD_HEIGHT,
@@ -27,6 +28,12 @@ import { levels, levelColors } from '../levels.ts';
 interface GameBoardProps {
   onEndGame: (score: number, didWin: boolean) => void;
   controls: Controls;
+  isPaused: boolean;
+}
+
+export interface GameBoardHandles {
+  setPaddleDirection: (direction: 'left' | 'right' | null) => void;
+  fire: () => void;
 }
 
 const STUCK_THRESHOLD = 5;
@@ -34,9 +41,7 @@ const WALL_HIT_RESET_THRESHOLD = 250;
 
 const createBricks = (levelIndex: number): Brick[] => {
     const bricks: Brick[] = [];
-    // Use modulo to prevent out-of-bounds if levelIndex > levels.length
     const layout = levels[levelIndex % levels.length];
-    // Cycle through colors if there are more levels than color palettes
     const colors = levelColors[levelIndex % levelColors.length];
     
     if (!layout) {
@@ -63,7 +68,7 @@ const createBricks = (levelIndex: number): Brick[] => {
     return bricks;
 };
 
-const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
+const GameBoard = forwardRef<GameBoardHandles, GameBoardProps>(({ onEndGame, controls, isPaused }, ref) => {
   const [level, setLevel] = useState(0);
   const [isRoundStarted, setIsRoundStarted] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -111,6 +116,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
     const speedTypes: PowerUpType[] = ['D', 'S'];
     const paddleTypes: PowerUpType[] = ['B', 'T'];
     const gunTypes: PowerUpType[] = ['F'];
+    const laserTypes: PowerUpType[] = ['L'];
 
     if (type === 'N') {
         activePowerUps.current = [];
@@ -121,8 +127,8 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
     if (speedTypes.includes(type)) category = speedTypes;
     if (paddleTypes.includes(type)) category = paddleTypes;
     if (gunTypes.includes(type)) category = gunTypes;
+    if (laserTypes.includes(type)) category = laserTypes;
 
-    // Remove existing power-ups in the same category
     if (category.length > 0) {
       activePowerUps.current = activePowerUps.current.filter(p => !category.includes(p.type));
     }
@@ -139,7 +145,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
         return;
     }
 
-    const targetLevelIndex = targetLevel - 1; // User inputs 1-based, code uses 0-based
+    const targetLevelIndex = targetLevel - 1;
     if (targetLevelIndex >= 0 && targetLevelIndex < levels.length) {
         setLevel(targetLevelIndex);
         bricks.current = createBricks(targetLevelIndex);
@@ -156,8 +162,41 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
     }
   }, [resetBallAndPaddle]);
 
+  const fire = useCallback(() => {
+    if (!isRoundStarted) {
+        setIsRoundStarted(true);
+        const angle = (Math.random() * Math.PI) / 2 + Math.PI / 4;
+        if(balls.current[0]) {
+            balls.current[0].vel = { x: INITIAL_BALL_SPEED * Math.cos(angle) * (Math.random() > 0.5 ? 1 : -1), y: -INITIAL_BALL_SPEED * Math.sin(angle) };
+        }
+    } else {
+        const firePowerUp = activePowerUps.current.find(p => p.type === 'F');
+        if (firePowerUp && typeof firePowerUp.shotsRemaining === 'number' && firePowerUp.shotsRemaining > 0) {
+            const newBall: Ball = {
+                id: nextBallId.current++,
+                pos: { x: paddleX.current + paddleWidth.current / 2, y: paddleY - BALL_RADIUS },
+                vel: { x: 0, y: -INITIAL_BALL_SPEED },
+                verticalHitStreak: 0,
+                wallHitCount: 0,
+                isProjectile: true,
+            };
+            balls.current.push(newBall);
+            firePowerUp.shotsRemaining -= 1;
+        }
+    }
+  }, [isRoundStarted, paddleY]);
+
+  useImperativeHandle(ref, () => ({
+    setPaddleDirection(direction) {
+        paddleDirectionRef.current = direction;
+    },
+    fire() {
+        fire();
+    }
+  }), [fire]);
+
   const gameLoop = useCallback(() => {
-    if (showLevelSelector) {
+    if (isPaused || showLevelSelector) {
         animationFrameId.current = requestAnimationFrame(gameLoop);
         return;
     }
@@ -168,6 +207,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
 
     const activePaddlePowerUp = activePowerUps.current.find(p => p.type === 'B' || p.type === 'T');
     const activeSpeedPowerUp = activePowerUps.current.find(p => p.type === 'D' || p.type === 'S');
+    const isLaserActive = activePowerUps.current.some(p => p.type === 'L');
     
     paddleWidth.current = activePaddlePowerUp
         ? (activePaddlePowerUp.type === 'B' ? PADDLE_WIDTH * 1.5 : PADDLE_WIDTH * 0.5)
@@ -184,11 +224,13 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
             const ball = balls.current[i];
             
             const currentSpeed = Math.sqrt(ball.vel.x ** 2 + ball.vel.y ** 2);
-            const targetSpeed = INITIAL_BALL_SPEED * speedMultiplier;
-            if (currentSpeed > 0 && Math.abs(currentSpeed - targetSpeed) > 0.1) {
-                const factor = targetSpeed / currentSpeed;
-                ball.vel.x *= factor;
-                ball.vel.y *= factor;
+            if (!ball.isProjectile) {
+                const targetSpeed = INITIAL_BALL_SPEED * speedMultiplier;
+                if (currentSpeed > 0 && Math.abs(currentSpeed - targetSpeed) > 0.1) {
+                    const factor = targetSpeed / currentSpeed;
+                    ball.vel.x *= factor;
+                    ball.vel.y *= factor;
+                }
             }
 
             ball.pos.x += ball.vel.x;
@@ -198,41 +240,39 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
 
             if (ball.pos.x - BALL_RADIUS < 0 || ball.pos.x + BALL_RADIUS > BOARD_WIDTH) {
               ball.vel.x *= -1;
-              ball.verticalHitStreak = (ball.verticalHitStreak || 0) + 1;
-              if (ball.verticalHitStreak >= STUCK_THRESHOLD) {
-                  ball.vel.y += (Math.random() > 0.5 ? 1 : -1) * 0.5;
-                  ball.verticalHitStreak = 0;
+              if (!ball.isProjectile) {
+                ball.verticalHitStreak = (ball.verticalHitStreak || 0) + 1;
+                if (ball.verticalHitStreak >= STUCK_THRESHOLD) {
+                    ball.vel.y += (Math.random() > 0.5 ? 1 : -1) * 0.5;
+                    ball.verticalHitStreak = 0;
+                }
               }
               hitWall = true;
             }
             if (ball.pos.y - BALL_RADIUS < 0) {
+              if (ball.isProjectile) {
+                balls.current.splice(i, 1);
+                continue;
+              }
               ball.vel.y *= -1;
               ball.verticalHitStreak = 0;
               hitWall = true;
             }
 
-            if (hitWall) {
+            if (hitWall && !ball.isProjectile) {
                 ball.wallHitCount = (ball.wallHitCount || 0) + 1;
-
                 if (ball.wallHitCount > WALL_HIT_RESET_THRESHOLD) {
                     ball.pos = { x: BOARD_WIDTH / 2, y: BOARD_HEIGHT / 2 };
-                    
                     const angle = Math.random() * (Math.PI / 2) + Math.PI / 4;
-                    ball.vel = {
-                        x: INITIAL_BALL_SPEED * Math.cos(angle) * (Math.random() > 0.5 ? 1 : -1),
-                        y: INITIAL_BALL_SPEED * Math.sin(angle)
-                    };
-
+                    ball.vel = { x: INITIAL_BALL_SPEED * Math.cos(angle) * (Math.random() > 0.5 ? 1 : -1), y: INITIAL_BALL_SPEED * Math.sin(angle) };
                     ball.wallHitCount = 0;
-                    
-                    const slowDuration = 2000;
-                    const slowExpiresAt = Date.now() + slowDuration;
+                    const slowExpiresAt = Date.now() + 2000;
                     activePowerUps.current = activePowerUps.current.filter(p => p.type !== 'D' && p.type !== 'S');
                     activePowerUps.current.push({ type: 'S', expiresAt: slowExpiresAt });
                 }
             }
             
-            if (ball.vel.y > 0 && ball.pos.y + BALL_RADIUS >= paddleY && ball.pos.y - BALL_RADIUS < paddleY + PADDLE_HEIGHT && ball.pos.x + BALL_RADIUS > paddleX.current && ball.pos.x - BALL_RADIUS < paddleX.current + paddleWidth.current) {
+            if (!ball.isProjectile && ball.vel.y > 0 && ball.pos.y + BALL_RADIUS >= paddleY && ball.pos.y - BALL_RADIUS < paddleY + PADDLE_HEIGHT && ball.pos.x + BALL_RADIUS > paddleX.current && ball.pos.x - BALL_RADIUS < paddleX.current + paddleWidth.current) {
                 ball.vel.y *= -1;
                 const hitPos = (ball.pos.x - (paddleX.current + paddleWidth.current / 2)) / (paddleWidth.current / 2);
                 ball.vel.x = hitPos * (Math.sqrt(ball.vel.x**2 + ball.vel.y**2) || INITIAL_BALL_SPEED);
@@ -240,7 +280,8 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
                 comboCount.current = 0;
                 ball.verticalHitStreak = 0;
             }
-
+            
+            let destroyedByBrick = false;
             for (const brick of bricks.current) {
                 if (!brick.active) continue;
 
@@ -249,60 +290,66 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
                 const dx = ball.pos.x - closestX;
                 const dy = ball.pos.y - closestY;
 
-                if ((dx * dx + dy * dy) < (BALL_RADIUS * BALL_RADIUS)) {
-                    brick.health -= 1;
+                const ballSize = ball.isProjectile ? 4 : BALL_RADIUS;
 
-                    if (brick.health === 1) { // Brick was hit but not destroyed, now show crack
-                        brick.cracked = true;
-                    }
+                if ((dx * dx + dy * dy) < (ballSize * ballSize)) {
+                    brick.health -= 1;
+                    if (brick.health === 1) brick.cracked = true;
 
                     if (brick.health <= 0) {
                         brick.active = false;
                         comboCount.current += 1;
                         score.current += comboCount.current > 1 ? 20 : 10;
-
                         if (Math.random() < POWERUP_CHANCE) {
-                            const types: PowerUpType[] = ['D', 'S', 'B', 'T', 'N', 'F'];
+                            const types: PowerUpType[] = ['D', 'S', 'B', 'T', 'N', 'F', 'L'];
                             const type = types[Math.floor(Math.random() * types.length)];
                             powerUps.current.push({ x: brick.x + brick.width / 2, y: brick.y, type, width: POWERUP_SIZE, height: POWERUP_SIZE, active: true });
                         }
                     }
-                    
-                    const ballPrevX = ball.pos.x - ball.vel.x;
-                    const ballPrevY = ball.pos.y - ball.vel.y;
 
-                    const prevFrameBallLeft = ballPrevX - BALL_RADIUS;
-                    const prevFrameBallRight = ballPrevX + BALL_RADIUS;
-                    const prevFrameBallTop = ballPrevY - BALL_RADIUS;
-                    const prevFrameBallBottom = ballPrevY + BALL_RADIUS;
+                    if (ball.isProjectile) {
+                        balls.current.splice(i, 1);
+                        destroyedByBrick = true;
+                        break;
+                    }
                     
-                    const brickLeft = brick.x;
-                    const brickRight = brick.x + brick.width;
-                    const brickTop = brick.y;
-                    const brickBottom = brick.y + brick.height;
-                    
-                    const wasClearX = prevFrameBallRight <= brickLeft || prevFrameBallLeft >= brickRight;
-                    const wasClearY = prevFrameBallBottom <= brickTop || prevFrameBallTop >= brickBottom;
-                    
-                    if (wasClearX && !wasClearY) { // Vertical hit
-                        ball.vel.x *= -1;
-                        ball.verticalHitStreak = (ball.verticalHitStreak || 0) + 1;
-                        if (ball.verticalHitStreak >= STUCK_THRESHOLD) {
-                            ball.vel.y += (Math.random() > 0.5 ? 1 : -1) * 0.5;
+                    if (!isLaserActive) {
+                        const ballPrevX = ball.pos.x - ball.vel.x;
+                        const ballPrevY = ball.pos.y - ball.vel.y;
+                        const prevFrameBallLeft = ballPrevX - BALL_RADIUS;
+                        const prevFrameBallRight = ballPrevX + BALL_RADIUS;
+                        const prevFrameBallTop = ballPrevY - BALL_RADIUS;
+                        const prevFrameBallBottom = ballPrevY + BALL_RADIUS;
+                        const brickLeft = brick.x;
+                        const brickRight = brick.x + brick.width;
+                        const brickTop = brick.y;
+                        const brickBottom = brick.y + brick.height;
+                        
+                        const wasClearX = prevFrameBallRight <= brickLeft || prevFrameBallLeft >= brickRight;
+                        const wasClearY = prevFrameBallBottom <= brickTop || prevFrameBallTop >= brickBottom;
+                        
+                        if (wasClearX && !wasClearY) {
+                            ball.vel.x *= -1;
+                            ball.verticalHitStreak = (ball.verticalHitStreak || 0) + 1;
+                            if (ball.verticalHitStreak >= STUCK_THRESHOLD) {
+                                ball.vel.y += (Math.random() > 0.5 ? 1 : -1) * 0.5;
+                                ball.verticalHitStreak = 0;
+                            }
+                        } else if (!wasClearX && wasClearY) {
+                            ball.vel.y *= -1;
+                            ball.verticalHitStreak = 0;
+                        } else {
+                            ball.vel.x *= -1;
+                            ball.vel.y *= -1;
                             ball.verticalHitStreak = 0;
                         }
-                    } else if (!wasClearX && wasClearY) { // Horizontal hit
-                        ball.vel.y *= -1;
-                        ball.verticalHitStreak = 0;
-                    } else { // Corner hit
-                        ball.vel.x *= -1;
-                        ball.vel.y *= -1;
-                        ball.verticalHitStreak = 0;
+                        break; 
                     }
-
-                    break; 
                 }
             }
+
+            if (destroyedByBrick) continue;
+
             if (ball.pos.y > BOARD_HEIGHT) balls.current.splice(i, 1);
         }
     } else if (balls.current[0]) {
@@ -317,7 +364,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
         return p.active && p.y < BOARD_HEIGHT;
     });
 
-    if (isRoundStarted && balls.current.length === 0) {
+    if (isRoundStarted && balls.current.filter(b => !b.isProjectile).length === 0) {
         lives.current -= 1;
         if (lives.current > 0) resetBallAndPaddle();
         else { onEndGame(score.current, false); return; }
@@ -331,7 +378,6 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
         if (nextLevel < 6) { 
             nextBrickLayoutIndex = nextLevel;
             if (nextBrickLayoutIndex >= levels.length) {
-                console.warn("Not enough levels defined for sequential play. Ending game.");
                 onEndGame(score.current, true);
                 return;
             }
@@ -340,7 +386,6 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
             const maxIndex = Math.min(24, levels.length - 1);
 
             if (minIndex > maxIndex) {
-                 console.warn("Random level pool is empty. Ending game.");
                  onEndGame(score.current, true);
                  return;
             }
@@ -357,7 +402,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
     
     forceRender();
     animationFrameId.current = requestAnimationFrame(gameLoop);
-  }, [level, isRoundStarted, paddleY, onEndGame, handlePowerUpCollection, resetBallAndPaddle, showLevelSelector]);
+  }, [level, isRoundStarted, paddleY, onEndGame, handlePowerUpCollection, resetBallAndPaddle, showLevelSelector, isPaused]);
 
   useEffect(() => {
     resetBallAndPaddle();
@@ -383,33 +428,14 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
                 e.preventDefault();
                 setShowLevelSelector(false);
             }
-            return; // Block game controls while selector is open
+            return;
         }
 
         if (e.key === controls.left) paddleDirectionRef.current = 'left';
         else if (e.key === controls.right) paddleDirectionRef.current = 'right';
         else if (e.key === controls.launch) {
             e.preventDefault();
-            if (!isRoundStarted) {
-                setIsRoundStarted(true);
-                const angle = (Math.random() * Math.PI) / 2 + Math.PI / 4;
-                if(balls.current[0]) {
-                    balls.current[0].vel = { x: INITIAL_BALL_SPEED * Math.cos(angle) * (Math.random() > 0.5 ? 1 : -1), y: -INITIAL_BALL_SPEED * Math.sin(angle) };
-                }
-            } else {
-                const firePowerUp = activePowerUps.current.find(p => p.type === 'F');
-                if (firePowerUp && typeof firePowerUp.shotsRemaining === 'number' && firePowerUp.shotsRemaining > 0) {
-                    const newBall: Ball = {
-                        id: nextBallId.current++,
-                        pos: { x: paddleX.current + paddleWidth.current / 2, y: paddleY - BALL_RADIUS },
-                        vel: { x: 0, y: -INITIAL_BALL_SPEED },
-                        verticalHitStreak: 0,
-                        wallHitCount: 0,
-                    };
-                    balls.current.push(newBall);
-                    firePowerUp.shotsRemaining -= 1;
-                }
-            }
+            fire();
         }
     };
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -423,11 +449,12 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
         window.removeEventListener('keydown', handleKeyDown);
         window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isRoundStarted, controls, paddleY, showLevelSelector]);
+  }, [controls, showLevelSelector, fire]);
   
   const nowForRender = Date.now();
   const firePowerUpForRender = activePowerUps.current.find(p => p.type === 'F');
   const isGunActiveForRender = !!firePowerUpForRender;
+  const isLaserActiveForRender = activePowerUps.current.some(p => p.type === 'L');
 
   return (
     <div className="relative bg-slate-900 border-4 border-cyan-700/50 shadow-2xl shadow-cyan-500/10 rounded-lg overflow-hidden"
@@ -497,7 +524,35 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
       </div>
       
       {balls.current.map(ball => (
-        <div key={ball.id} className="absolute bg-white rounded-full" role="presentation" style={{ left: ball.pos.x - BALL_RADIUS, top: ball.pos.y - BALL_RADIUS, width: BALL_RADIUS * 2, height: BALL_RADIUS * 2, boxShadow: '0 0 10px #ffffff' }} />
+        ball.isProjectile ? (
+          <div
+            key={ball.id}
+            className="absolute bg-orange-400 rounded-sm"
+            role="presentation"
+            style={{
+              left: ball.pos.x - 4,
+              top: ball.pos.y - 8,
+              width: 8,
+              height: 16,
+              boxShadow: '0 0 10px #fb923c, 0 0 20px #f97316',
+            }}
+          />
+        ) : (
+          <div 
+            key={ball.id} 
+            className="absolute rounded-full" 
+            role="presentation"
+            style={{ 
+              left: ball.pos.x - BALL_RADIUS, 
+              top: ball.pos.y - BALL_RADIUS, 
+              width: BALL_RADIUS * 2, 
+              height: BALL_RADIUS * 2,
+              backgroundColor: isLaserActiveForRender ? '#facc15' : '#ffffff',
+              boxShadow: `0 0 15px ${isLaserActiveForRender ? '#facc15' : '#ffffff'}, inset 0 0 4px ${isLaserActiveForRender ? '#fef08a' : '#ffffff'}`,
+              transition: 'background-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out',
+            }} 
+          />
+        )
       ))}
 
       {message && (
@@ -508,7 +563,7 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><div className="bg-slate-900/60 backdrop-blur-sm p-6 rounded-lg shadow-lg"><p className="text-2xl font-bold text-white/90 animate-pulse tracking-wide">Press {controls.launch === ' ' ? 'Space' : `'${controls.launch}'`} to start</p></div></div>
       )}
       
-      {isGunActiveForRender && firePowerUpForRender && isRoundStarted && balls.current.length > 0 && (
+      {isGunActiveForRender && firePowerUpForRender && isRoundStarted && balls.current.filter(b => !b.isProjectile).length > 0 && (
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 pointer-events-none">
             <div className="bg-slate-900/60 backdrop-blur-sm p-3 rounded-lg shadow-lg">
               {(typeof firePowerUpForRender.shotsRemaining === 'number' && firePowerUpForRender.shotsRemaining > 0) ? (
@@ -555,6 +610,6 @@ const GameBoard: React.FC<GameBoardProps> = ({ onEndGame, controls }) => {
       )}
     </div>
   );
-};
+});
 
 export default GameBoard;

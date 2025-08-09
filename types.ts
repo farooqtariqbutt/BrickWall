@@ -1,4 +1,5 @@
 
+
 export interface Vector {
   x: number;
   y: number;
@@ -10,6 +11,7 @@ export interface Ball {
   vel: Vector;
   verticalHitStreak: number;
   wallHitCount: number;
+  isProjectile?: boolean;
 }
 
 export interface Brick {
@@ -26,6 +28,7 @@ export interface Brick {
 export enum GameStatus {
   START,
   PLAYING,
+  PAUSED,
   GAME_OVER,
   WIN,
   SETTINGS,
@@ -39,7 +42,7 @@ export interface Controls {
   launch: string;
 }
 
-export type PowerUpType = 'D' | 'S' | 'B' | 'T' | 'N' | 'F';
+export type PowerUpType = 'D' | 'S' | 'B' | 'T' | 'N' | 'F' | 'L';
 
 export interface PowerUp {
   x: number;
